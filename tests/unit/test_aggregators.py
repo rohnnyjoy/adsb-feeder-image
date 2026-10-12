@@ -16,7 +16,9 @@ from utils.other_aggregators import (
     RadarBox,
     RadarVirtuel,
     Uk1090,
-    Sdrmap
+    Sdrmap,
+    Tally,
+    tally_station_id
 )
 
 
@@ -544,6 +546,126 @@ class TestSdrmap:
         mock_deactivate.assert_called_once()
 
 
+class FakeListEnv:
+    """A list-valued Env that remembers what is set, per site index"""
+
+    def __init__(self, value=""):
+        self.values = {}
+        self.default = value
+        self.valuestr = value
+
+    def list_get(self, idx):
+        return self.values.get(idx, self.default)
+
+    def list_set(self, idx, value):
+        self.values[idx] = value
+
+
+class TestTally:
+    """Test Tally aggregator"""
+
+    SECRET = "c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3I="
+    PUBLIC = "JHSEe+sJIFnbegZAoEvGzLcBKS1UYzgPBU7jpIuUJ8o="
+    STATION = "JHSEe-sJIFnbegZAoEvGzLcBKS1UYzgPBU7jpIuUJ8o"
+
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.mock_system = MagicMock()
+        self.mock_data = MagicMock()
+        self.mock_system._d = self.mock_data
+
+        # one remembering Env per tag set, so the test can see what activation stores
+        self.envs = {
+            frozenset(["tally", "key"]): FakeListEnv(),
+            frozenset(["tally", "public_key"]): FakeListEnv(),
+            frozenset(["tally", "is_enabled", "other_aggregator"]): FakeListEnv(False),
+            frozenset(["tally", "container"]): FakeListEnv("ghcr.io/sky-commons/tally-feed:v0.2.0"),
+        }
+        self.mock_data.env_by_tags.side_effect = lambda tags: self.envs[frozenset(tags)]
+
+    def env(self, *tags):
+        return self.envs[frozenset(tags)]
+
+    def test_tally_initialization(self):
+        """Test Tally initialization"""
+        tally = Tally(self.mock_system)
+
+        assert tally.name == "Tally"
+        assert tally.tags == ["tally"]
+
+    def test_tally_station_id(self):
+        """The station id is the public key as base64url without padding, whichever form goes in"""
+        assert tally_station_id(self.PUBLIC) == self.STATION
+        assert tally_station_id(self.STATION) == self.STATION
+        assert tally_station_id(f" {self.PUBLIC}\n") == self.STATION
+
+    def test_tally_activate_creates_identity(self):
+        """Enabling Tally without a key creates the identity, stores it for the site, then enables"""
+        tally = Tally(self.mock_system)
+
+        with patch.object(tally, '_download_docker_container', return_value=True), \
+             patch.object(tally, '_docker_run_with_timeout', return_value=f"{self.SECRET}\n{self.PUBLIC}\n") as mock_run:
+            assert tally._activate("", 2) is True
+
+        cmdline = mock_run.call_args[0][0]
+        assert cmdline.endswith("ghcr.io/sky-commons/tally-feed:v0.2.0 new-key")
+        # the secret must not be written to the log
+        assert mock_run.call_args[1] == {"log_output": False}
+        assert self.env("tally", "key").list_get(2) == self.SECRET
+        assert self.env("tally", "public_key").list_get(2) == self.STATION
+        assert self.env("tally", "is_enabled", "other_aggregator").list_get(2) is True
+        # other sites are untouched
+        assert self.env("tally", "key").list_get(0) == ""
+
+    def test_tally_existing_key_is_never_replaced(self):
+        """An existing key is kept and no container is run"""
+        tally = Tally(self.mock_system)
+        self.env("tally", "key").list_set(0, "existing-secret")
+        self.env("tally", "public_key").list_set(0, self.STATION)
+
+        with patch.object(tally, '_download_docker_container') as mock_download, \
+             patch.object(tally, '_docker_run_with_timeout') as mock_run:
+            assert tally.create_missing_key(0) is True
+            assert tally._activate("ignored", 0) is True
+
+        mock_download.assert_not_called()
+        mock_run.assert_not_called()
+        assert self.env("tally", "key").list_get(0) == "existing-secret"
+        assert self.env("tally", "is_enabled", "other_aggregator").list_get(0) is True
+
+    @patch('utils.other_aggregators.report_issue')
+    def test_tally_activate_fails_on_bad_output(self, mock_report):
+        """Unexpected container output stores nothing and does not enable"""
+        tally = Tally(self.mock_system)
+
+        with patch.object(tally, '_download_docker_container', return_value=True), \
+             patch.object(tally, '_docker_run_with_timeout', return_value="tally-feed: something went wrong\n"):
+            assert tally._activate("", 0) is False
+
+        mock_report.assert_called_once()
+        assert self.env("tally", "key").list_get(0) == ""
+        assert self.env("tally", "public_key").list_get(0) == ""
+        assert self.env("tally", "is_enabled", "other_aggregator").list_get(0) is False
+
+    @patch('utils.other_aggregators.report_issue')
+    def test_tally_activate_fails_without_image(self, mock_report):
+        """If the image can't be pulled, nothing is stored or enabled"""
+        tally = Tally(self.mock_system)
+
+        with patch.object(tally, '_download_docker_container', return_value=False), \
+             patch.object(tally, '_docker_run_with_timeout') as mock_run:
+            assert tally._activate("", 0) is False
+
+        mock_run.assert_not_called()
+        mock_report.assert_called_once()
+        assert self.env("tally", "is_enabled", "other_aggregator").list_get(0) is False
+
+    def test_aggregators_without_own_key_cannot_create_one(self):
+        """Only aggregators that create their identity on this feeder create a missing key"""
+        assert Sdrmap(self.mock_system).create_missing_key(0) is False
+        assert Uk1090(self.mock_system).create_missing_key(0) is False
+
+
 class TestAggregatorIntegration:
     """Integration tests for aggregators"""
 
@@ -570,7 +692,8 @@ class TestAggregatorIntegration:
             RadarBox(self.mock_system),
             RadarVirtuel(self.mock_system),
             Uk1090(self.mock_system),
-            Sdrmap(self.mock_system)
+            Sdrmap(self.mock_system),
+            Tally(self.mock_system)
         ]
 
         # All should have unique names and tags
@@ -592,7 +715,8 @@ class TestAggregatorIntegration:
             RadarBox(self.mock_system),
             RadarVirtuel(self.mock_system),
             Uk1090(self.mock_system),
-            Sdrmap(self.mock_system)
+            Sdrmap(self.mock_system),
+            Tally(self.mock_system)
         ]
 
         for agg in aggregators:
@@ -668,7 +792,8 @@ class TestAggregatorIntegration:
             RadarBox(self.mock_system),
             RadarVirtuel(self.mock_system),
             Uk1090(self.mock_system),
-            Sdrmap(self.mock_system)
+            Sdrmap(self.mock_system),
+            Tally(self.mock_system)
         ]
 
         for agg in aggregators:

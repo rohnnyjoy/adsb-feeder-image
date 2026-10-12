@@ -84,6 +84,18 @@ class Aggregator:
         """Deactivate aggregator (to be implemented by subclasses)."""
         raise NotImplementedError
 
+    def create_missing_key(self, idx: int = 0) -> bool:
+        """
+        Create the key for site idx when it is missing, if this aggregator can.
+
+        Most aggregators need a key the user brings, so the default can't create one.
+        Aggregators whose identity is created on this feeder override this.
+
+        Returns:
+            True if a key is set (or was just created), False otherwise
+        """
+        return False
+
     def _download_docker_container(self, container: str) -> bool:
         print_err(f"download_docker_container {container}")
         cmdline = f"docker pull {container}"
@@ -93,8 +105,8 @@ class Aggregator:
             return False
         return True
 
-    def _docker_run_with_timeout(self, cmdline: str, timeout: float) -> str:
-        """Run Docker container with timeout and return output."""
+    def _docker_run_with_timeout(self, cmdline: str, timeout: float, log_output: bool = True) -> str:
+        """Run Docker container with timeout and return output (log_output=False keeps secrets out of the log)."""
 
         def force_remove_container(name: str) -> None:
             try:
@@ -123,7 +135,8 @@ class Aggregator:
             # they don't stop on their own. So just grab the output and kill the container
             output = exc.stdout.decode() if exc.stdout else ""
             stderr = exc.stderr.decode() if exc.stderr else ""
-            print_err(f"docker run {cmdline} received a timeout error after {timeout} with output {output}")
+            logged = output if log_output else "(not logged)"
+            print_err(f"docker run {cmdline} received a timeout error after {timeout} with output {logged}")
             if stderr:
                 print_err(f"docker run {cmdline} stderr: {stderr}")
 
@@ -133,7 +146,8 @@ class Aggregator:
         else:
             output = result.stdout if result.stdout else ""
             stderr = result.stderr if result.stderr else ""
-            print_err(f"docker run {cmdline} completed with stdout: {output}")
+            logged = output if log_output else "(not logged)"
+            print_err(f"docker run {cmdline} completed with stdout: {logged}")
             if stderr:
                 print_err(f"docker run {cmdline} stderr: {stderr}")
         return output
@@ -603,4 +617,66 @@ class Sdrmap(Aggregator):
         self._d.env_by_tags(self.tags + ["user"]).list_set(idx, user)
         self._d.env_by_tags(self.tags + ["key"]).list_set(idx, password)
         self._d.env_by_tags(self.tags + ["is_enabled"]).list_set(idx, True)
+        return True
+
+
+def tally_station_id(public_key: str) -> str:
+    """
+    Turn a Tally public key into the station's name on the network.
+
+    tally-feed prints the public key as standard base64; the Tally API and site name a station
+    by the same key as base64url without padding. Applying this to either form gives the latter.
+    """
+    return public_key.strip().replace("+", "-").replace("/", "_").rstrip("=")
+
+
+class Tally(Aggregator):
+    """Tally aggregator integration (open network, no account: the identity is a key created on this feeder)."""
+
+    def __init__(self, system: System) -> None:
+        super().__init__(
+            name="Tally",
+            tags=["tally"],
+            system=system,
+        )
+
+    def _request_identity(self) -> Optional[tuple[str, str]]:
+        """Run `tally-feed new-key` and return (secret, station id), or None on failure."""
+        if not self._download_docker_container(self.container):
+            report_issue("failed to download the Tally docker image")
+            return None
+
+        # the entrypoint is the tally-feed binary itself; new-key prints the secret, then the public key
+        cmdline = f"--rm {shlex.quote(self.container)} new-key"
+        output = self._docker_run_with_timeout(cmdline, 30.0, log_output=False)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        if (
+            len(lines) != 2
+            or not re.fullmatch(r"[A-Za-z0-9+/=_-]+", lines[0])
+            or not re.fullmatch(r"[A-Za-z0-9+/]{43}=", lines[1])
+        ):
+            # report_issue rather than flash: this can also run outside a request (handle_implied_settings at startup)
+            report_issue(f"Tally: couldn't create a receiver key (unexpected output, {len(lines)} lines)")
+            return None
+        return lines[0], tally_station_id(lines[1])
+
+    def create_missing_key(self, idx: int = 0) -> bool:
+        """Create the receiver's identity for site idx if it has none; an existing key is never replaced."""
+        self._idx = make_int(idx)
+        if self._d.env_by_tags(self._key_tags).list_get(self._idx):
+            return True
+        identity = self._request_identity()
+        if not identity:
+            return False
+        secret, station_id = identity
+        self._d.env_by_tags(self._key_tags).list_set(self._idx, secret)
+        self._d.env_by_tags(self.tags + ["public_key"]).list_set(self._idx, station_id)
+        print_err(f"created Tally identity {station_id} for site {self._idx}")
+        return True
+
+    def _activate(self, user_input: str, idx: int = 0) -> bool:
+        # there is nothing to enter: the identity is created here (and kept if it already exists)
+        if not self.create_missing_key(idx):
+            return False
+        self._d.env_by_tags(self._enabled_tags).list_set(make_int(idx), True)
         return True

@@ -301,6 +301,26 @@
     </label>
   </div>
   <div class="col-12 form-check">
+    <input type="checkbox" class="form-check-input me-1 account-less" name="tally--is_enabled" id="tally--is_enabled"
+           {{ others_enabled("tally", m) }} onclick="$('#individual').click();" />
+    <label class="mx-1 w-auto" for="tally--is_enabled">
+      <a href="https://tally.flightlines.ai/">Tally</a> <a href="https://tally.flightlines.ai/en/data/" title="Data Policy" style="font-size: 0.8em;">🛡️</a>
+      <div class="form-group uuid-fields" id="TALLY_FIELDS">
+        <label>
+          Tally is an open network for ADS-B receivers and needs no account: when you apply, this feeder creates a key
+          for your receiver, and its public key is your receiver's name on the network.
+          Your receiver's exact location is published with its data, because multilateration (MLAT) needs it.
+        </label>
+        {% if list_value_by_tags(["tally", "public_key"], m) %}
+        <div>
+          Public key:
+          <a href="https://tally.flightlines.ai/en/station/{{ list_value_by_tags(["tally", "public_key"], m) }}/"><tt>{{ list_value_by_tags(["tally", "public_key"], m) }}</tt></a>
+        </div>
+        {% endif %}
+      </div>
+    </label>
+  </div>
+  <div class="col-12 form-check">
     <input type="checkbox" class="form-check-input me-1 account-less" name="radarvirtuel--is_enabled" id="radarvirtuel--is_enabled"
             {{ others_enabled("radarvirtuel", m) }} onclick="$('#individual').click();" />
     <label class="mx-1 w-auto" for="radarvirtuel--is_enabled">
@@ -607,6 +627,7 @@
     ["opensky--is_enabled", "OS_FIELDS", ["opensky--user"]],
     ["1090uk--is_enabled", "TNUK_FIELDS", ["1090uk--key"]],
     ["sdrmap--is_enabled", "SM_FIELDS", ["sdrmap--user", "sdrmap--key"]],
+    ["tally--is_enabled", "TALLY_FIELDS", []],
     ["ais_feed_aiscatcher--is_enabled", "AISCATCHER_FIELDS", ["aiscatcher_feeder_key"]],
     ["ais_feed_aisfriends--is_enabled", "AISFRIENDS_FIELDS", ["aisfriends_udp_port"]],
     ["ais_feed_aishub--is_enabled", "AISHUB_FIELDS", ["aishub_udp_port"]],

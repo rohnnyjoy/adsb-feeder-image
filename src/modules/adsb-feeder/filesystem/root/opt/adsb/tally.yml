@@ -1,0 +1,40 @@
+services:
+  tally:
+    image: ${TALLY_CONTAINER}
+    healthcheck:
+      disable: true
+    container_name: tally
+    hostname: tally
+    restart: unless-stopped
+    networks:
+      - adsb_im_bridge
+    cpu_period: 50000
+    cpu_quota: 7500
+    stop_grace_period: 3s
+    environment:
+      - TZ=${FEEDER_TZ}
+      # the receiver's identity, created on this feeder when Tally is enabled
+      - TALLY_KEY=${FEEDER_TALLY_KEY}
+      # USER_PROVIDED_ENV_START
+      # USER_PROVIDED_ENV_END
+    # the entrypoint is the tally-feed binary itself (no shell), so the arguments are passed directly
+    command:
+      - --key-env
+      - TALLY_KEY
+      - --source
+      - ultrafeeder:30005
+      - --relay
+      - relay.tally.flightlines.ai:10900=JHSEe+sJIFnbegZAoEvGzLcBKS1UYzgPBU7jpIuUJ8o=
+      - --lat
+      - ${FEEDER_LAT}
+      - --lon
+      - ${FEEDER_LONG}
+      - --alt
+      - ${FEEDER_ALT_M}
+    volumes:
+      # the relays the feeder learned; a new named volume is owned by the container's user (uid 65532)
+      - tally_state:/var/lib/tally-feed
+
+volumes:
+  tally_state:
+    name: tally_state

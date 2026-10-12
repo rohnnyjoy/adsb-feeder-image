@@ -591,6 +591,18 @@ class Data:
             default=[""],
             tags=["sdrmap", "key"],
         ),
+        # Tally: the receiver's secret, created on this feeder by `tally-feed new-key`
+        Env(
+            "FEEDER_TALLY_KEY",
+            default=[""],
+            tags=["tally", "key"],
+        ),
+        # Tally: the receiver's public key as base64url without padding, its name on the network
+        Env(
+            "FEEDER_TALLY_PUBLIC_KEY",
+            default=[""],
+            tags=["tally", "public_key"],
+        ),
         # ADSB.im specific
         Env("_ADSBIM_AGGREGATORS_SELECTION", default="individual", tags=["aggregator_choice"]),
         Env("_ADSBIM_BASE_VERSION", default="", tags=["base_version", "norestore"]),
@@ -704,6 +716,11 @@ class Data:
             "AF_IS_SDRMAP_ENABLED",
             default=[False],
             tags=["other_aggregator", "is_enabled", "sdrmap"],
+        ),
+        Env(
+            "AF_IS_TALLY_ENABLED",
+            default=[False],
+            tags=["other_aggregator", "is_enabled", "tally"],
         ),
         Env(
             "AF_IS_AIRSPY_ENABLED",
@@ -1046,6 +1063,7 @@ class Data:
         "PW_CONTAINER": "planewatch",
         "TNUK_CONTAINER": "1090uk",
         "SDRMAP_CONTAINER": "sdrmap",
+        "TALLY_CONTAINER": "tally",
         "SKYSTATS_CONTAINER": "skystats",
     }
     try:

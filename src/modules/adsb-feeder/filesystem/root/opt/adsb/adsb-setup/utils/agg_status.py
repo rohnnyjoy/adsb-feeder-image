@@ -11,6 +11,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 from .data import Data
+from .other_aggregators import tally_station_id
 from .paths import PREVIOUS_VERSION_FILE
 from .util import generic_get_json, get_plain_url, make_int, print_err
 
@@ -215,6 +216,7 @@ class AggStatus:
                 "adsbhub": "adsbhub",
                 "planewatch": "planewatch",
                 "sdrmap": "sdrmap",
+                "tally": "tally",
             }
             container_name = container_for_agg.get(self._agg, "")
             if self._idx != 0:
@@ -408,6 +410,25 @@ class AggStatus:
                 self._beast = T.Disconnected
             # self.get_mlat_status(path=f"/run/sdrmap_{self._idx}/mlat-client-stats.json")
             self._mlat = T.Unknown
+        elif self._agg == "tally":
+            # the relays compute MLAT from the raw data; the feeder doesn't report on it
+            self._mlat = T.Unknown
+            public_key = self._d.env_by_tags(["tally", "public_key"]).list_get(self._idx)
+            if not public_key:
+                self._beast = T.Unknown
+                self._last_check = datetime.now()
+                return
+            json_url = f"https://tally-api.flightlines.ai/v1/stations/{tally_station_id(public_key)}"
+            tally_dict, status = self.get_json(json_url)
+            if tally_dict and status == 200:
+                self._beast = T.Good if tally_dict.get("online") is True else T.Disconnected
+            elif status == 404:
+                # the network hasn't seen this station (yet)
+                self._beast = T.Disconnected
+            else:
+                self._beast = T.Unknown
+                print_err(f"tally at {json_url} returned {status}")
+            self._last_check = datetime.now()
 
         # if mlat isn't enabled ignore status check results
         if not self._d.list_is_enabled("mlat_enable", self._idx):

@@ -57,6 +57,7 @@ These ADS-B aggregators are also supported:
 - [AirNav Radar](https://www.airnavradar.com)
 - [Radar Virtuel](https://www.radarvirtuel.com)
 - [RealTraffic](https://flyrealtraffic.com/)
+- [Tally](https://tally.flightlines.ai/)
 
 For ACARS / VDL2 / HFDL the image currently supports
 - [airframes.io](https://airframes.io)

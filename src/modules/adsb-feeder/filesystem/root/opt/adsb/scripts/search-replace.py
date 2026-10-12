@@ -49,6 +49,7 @@ sanitize_vars = [
     "_ADSBIM_STATE_NETBIRD_SETUP_KEY",
     "FEEDER_SM_USERNAME",
     "FEEDER_SM_PASSWORD",
+    "FEEDER_TALLY_KEY",
     "SKYSTATS_DB_PASSWORD",
 ] + [k for k in config if re.match(r"ULTRAFEEDER_\w+_UUID$", k)]
 

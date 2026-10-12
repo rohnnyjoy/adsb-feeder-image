@@ -70,6 +70,7 @@ from utils.other_aggregators import (
     PlaneWatch,
     RadarBox,
     Sdrmap,
+    Tally,
     Uk1090,
 )
 from utils.paths import get_adsb_base_dir
@@ -286,6 +287,7 @@ class AdsbIm:
             "radarbox--submit": RadarBox(self._system),
             "1090uk--submit": Uk1090(self._system),
             "sdrmap--submit": Sdrmap(self._system),
+            "tally--submit": Tally(self._system),
         }
         # fmt: off
         other_aggs: list = [
@@ -300,6 +302,7 @@ class AdsbIm:
             ["opensky", "OpenSky", "https://map.opensky-network.org/", ["https://opensky-network.org/data/sensor-details?serial=<FEEDER_OPENSKY_SERIAL>"], 1],
             ["1090uk", "1090MHz UK", "https://1090mhz.uk", ["https://www.1090mhz.uk/mystatus.php?key=<FEEDER_1090UK_API_KEY>"], 1],
             ["sdrmap", "sdrmap", "https://sdrmap.org/", ["https://sdrmap.org/?station=<FEEDER_SM_USERNAME>"], 1],
+            ["tally", "Tally", "https://tally.flightlines.ai/", ["https://tally.flightlines.ai/en/station/<FEEDER_TALLY_PUBLIC_KEY>/"], 1],
             ["radarvirtuel", "RadarVirtuel", "https://www.radarvirtuel.com/", [""], 1],
         ]
 
@@ -335,6 +338,7 @@ class AdsbIm:
             "alive--is_enabled",
             "uat978--is_enabled",
             "sdrmap--is_enabled", "sdrmap--user", "sdrmap--key",
+            "tally--is_enabled", "tally--key", "tally--public_key",
         ]
 
         netconfigs = self._d.netconfigs
@@ -2935,13 +2939,17 @@ class AdsbIm:
             if not is_uuid(self._d.env_by_tags("ultrafeeder_uuid").list_get(sitenum)):
                 self._d.env_by_tags("ultrafeeder_uuid").list_set(sitenum, str(uuid4()))
 
-            for agg in [submit_key.replace("--submit", "") for submit_key in self._other_aggregators.keys()]:
+            for submit_key, aggregator_object in self._other_aggregators.items():
+                agg = submit_key.replace("--submit", "")
                 if self._d.env_by_tags([agg, "is_enabled"]).list_get(sitenum):
                     # disable other aggregators for the combined data of stage2
                     if sitenum == 0 and self._d.is_enabled("stage2"):
                         self._d.env_by_tags([agg, "is_enabled"]).list_set(sitenum, False)
                     # disable other aggregators if their key isn't set
-                    if self._d.env_by_tags([agg, "key"]).list_get(sitenum) == "":
+                    # (unless the aggregator creates its own key on this feeder, like Tally)
+                    elif self._d.env_by_tags([agg, "key"]).list_get(sitenum) == "" and not aggregator_object.create_missing_key(
+                        sitenum
+                    ):
                         print_err(f"empty key, disabling: agg: {agg}, sitenum: {sitenum}")
                         self._d.env_by_tags([agg, "is_enabled"]).list_set(sitenum, False)
 
@@ -5360,6 +5368,7 @@ def create_stage2_yml_files(n, ip):
         [f"rb_{n}.yml", "rb_stage2_template.yml"],
         [f"rv_{n}.yml", "rv_stage2_template.yml"],
         [f"sdrmap_{n}.yml", "sdrmap_stage2_template.yml"],
+        [f"tally_{n}.yml", "tally_stage2_template.yml"],
     ]:
         create_stage2_yml_from_template(
             f"{get_adsb_base_dir()}/config/{yml_file}", n, ip, f"{get_adsb_base_dir()}/config/{template}"
