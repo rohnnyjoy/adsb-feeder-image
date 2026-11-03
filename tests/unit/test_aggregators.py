@@ -579,7 +579,7 @@ class TestTally:
             frozenset(["tally", "key"]): FakeListEnv(),
             frozenset(["tally", "public_key"]): FakeListEnv(),
             frozenset(["tally", "is_enabled", "other_aggregator"]): FakeListEnv(False),
-            frozenset(["tally", "container"]): FakeListEnv("ghcr.io/sky-commons/tally-feed:v0.2.0"),
+            frozenset(["tally", "container"]): FakeListEnv("ghcr.io/sky-commons/tally-feed:v0.7.1"),
         }
         self.mock_data.env_by_tags.side_effect = lambda tags: self.envs[frozenset(tags)]
 
@@ -608,7 +608,7 @@ class TestTally:
             assert tally._activate("", 2) is True
 
         cmdline = mock_run.call_args[0][0]
-        assert cmdline.endswith("ghcr.io/sky-commons/tally-feed:v0.2.0 new-key")
+        assert cmdline.endswith("ghcr.io/sky-commons/tally-feed:v0.7.1 new-key")
         # the secret must not be written to the log
         assert mock_run.call_args[1] == {"log_output": False}
         assert self.env("tally", "key").list_get(2) == self.SECRET
